@@ -1,6 +1,8 @@
-from curagridder import imaging_ms2dirty
+from curagridder import ms2dirty, dirty2ms
 import numpy as np
 import time
+# import pytest
+from numpy.testing import assert_, assert_allclose, assert_array_almost_equal
 
 def _l2error(a, b):
     return np.sqrt(np.sum(np.abs(a-b)**2)/np.sum(np.abs(a)**2))
@@ -42,33 +44,49 @@ def test_against_wdft(nrow, nchan, nxdirty, nydirty, fov, epsilon):
     freq = f0 + np.arange(nchan)*(f0/nchan)
     uvw = (np.random.rand(nrow, 3)-0.5)/(f0/speedoflight)
     ms = np.random.rand(nrow, nchan)-0.5 + 1j*(np.random.rand(nrow, nchan)-0.5)
+    dirty = np.random.rand(nxdirty, nydirty)-0.5 + 1j*(np.random.rand(nxdirty, nydirty)-0.5)
 
-    dirty = np.zeros((nxdirty,nydirty),dtype=np.complex128)
+
+    dirty2 = np.zeros((nxdirty,nydirty),dtype=np.complex128)
     
     print("begin")
     start = time.time()
-    dirty = imaging_ms2dirty(uvw,freq, ms, None, dirty, fov, epsilon,2)
+    dirty2 = ms2dirty(uvw,freq, ms, None, dirty2, fov, epsilon,2)
     end = time.time()
     print("The elapsed time {} (sec)".format(end-start))
     print("Execution finished")
-    dirty = np.reshape(dirty,[nxdirty,nydirty])
+    dirty2 = np.reshape(dirty2,[nxdirty,nydirty])
+    
+    ms2 = np.zeros((nrow,1),dtype=np.complex128)
+    ms2 = dirty2ms(uvw,freq, ms2, None, dirty, fov, epsilon,2)
+
+    # ms2 = np.reshape(ms2,[nrow,1])
+    print("\nadjointness testing....")
+    print(np.vdot(ms, ms2).real)
+    print(np.vdot(dirty2, dirty).real)
+    # assert_allclose(np.vdot(ms, ms2).real, np.vdot(dirty2, dirty).real, rtol=5e-12)
+
     if nrow<1e4:
         print("Vertification begin")
         truth = explicit_gridder(uvw, freq, ms, nxdirty, nydirty, xpixsize, ypixsize)
-        print("L2 error between explicit transform and gridder:",
-              _l2error(truth, dirty.real))
+        print("L2 error between explicit transform and CURIG:",
+              _l2error(truth, dirty2.real))
+
+   
 
 # the first test will execute 2 times to warp up the GPU
+
 test_against_wdft(1000, 1, 512, 512, 2, 1e-12)
 test_against_wdft(1000, 1, 512, 512, 2, 1e-12)
 test_against_wdft(1000, 1, 512, 512, 2, 1e-12)
-test_against_wdft(5000, 1, 512, 512, 2, 1e-12)
-test_against_wdft(9000, 1, 512, 512, 2, 1e-12)
-test_against_wdft(10000, 1, 512, 512, 2, 1e-12)
-test_against_wdft(100000000, 1, 512, 512, 2, 1e-12)
-test_against_wdft(10000, 1, 1024, 1024, 2, 1e-12)
-test_against_wdft(100000000, 1, 1024, 1024, 2, 1e-12)
-test_against_wdft(100000000, 1, 2048, 2048, 2, 1e-12)
-test_against_wdft(100000000, 1, 4096, 4096, 2, 1e-12)
+test_against_wdft(10000, 1, 2048, 2048, 2, 1e-12)
+# test_against_wdft(5000, 1, 512, 512, 2, 1e-12)
+# test_against_wdft(9000, 1, 512, 512, 2, 1e-12)
+# test_against_wdft(10000, 1, 512, 512, 2, 1e-12)
+# test_against_wdft(100000000, 1, 512, 512, 2, 1e-12)
+# test_against_wdft(10000, 1, 1024, 1024, 2, 1e-12)
+# test_against_wdft(100000000, 1, 1024, 1024, 2, 1e-12)
+# test_against_wdft(100000000, 1, 2048, 2048, 2, 1e-12)
+# test_against_wdft(100000000, 1, 4096, 4096, 2, 1e-12)
 
 

@@ -38,6 +38,8 @@
 
 #define SPEEDOFLIGHT 299792458.0
 
+#define MAX_CUFFT_ELEM 128e6
+
 //random11 and rand01
 // Random numbers: crappy unif random number generator in [0,1):
 //#define rand01() (((PCS)(rand()%RAND_MAX))/RAND_MAX)
@@ -53,4 +55,5 @@ int matrix_transpose_invoker(PCS *d_arr, int width, int height);
 void GPU_info();
 void show_mem_usage();
 int matrix_elementwise_multiply_invoker(CUCPX *a, PCS *b, int N);
+int matrix_elementwise_divide_invoker(CUCPX *a, PCS *b, int N);
 #endif

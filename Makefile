@@ -5,7 +5,7 @@ CXX  = g++
 NVCC = nvcc
 
 #set based on GPU card, sm_60 (Tesla P100) or sm_61 (consumer Pascal) or sm_70 (Tesla V100, Titan V) or sm_80 (A100)
-NVARCH ?= -gencode=arch=compute_80,code=sm_80
+NVARCH ?= -gencode=arch=compute_70,code=sm_70
 
 
 
@@ -47,7 +47,7 @@ STATICLIB=lib-static/$(LIBNAME).a
 BINDIR=bin
 
 HEADERS = include/curafft_opts.h include/curafft_plan.h include/cugridder.h \
-	include/conv_invoker.h include/conv.h include/cuft.h include/dataType.h \
+	include/conv_interp_invoker.h include/conv.h include/interp.h include/cuft.h include/dataType.h \
 	include/deconv.h include/precomp.h include/ragridder_plan.h include/utils.h \
 	contrib/common.h contrib/legendre_rule_fast.h contrib/utils_fp.h
 # later put some file into the contrib
@@ -55,7 +55,7 @@ CONTRIBOBJS=contrib/common.o contrib/utils_fp.o
 
 CURAFFTOBJS=src/utils.o contrib/legendre_rule_fast.o
 
-CURAFFTOBJS_64=src/FT/conv_invoker.o src/FT/conv.o src/FT/cuft.o src/FT/deconv.o \
+CURAFFTOBJS_64=src/FT/conv_interp_invoker.o src/FT/conv.o src/FT/interp.o src/FT/cuft.o src/FT/deconv.o \
 	src/RA/cugridder.o src/RA/precomp.o src/RA/ra_exec.o $(CONTRIBOBJS)
 
 #ignore single precision first
@@ -106,7 +106,8 @@ w_s_test: $(BINDIR)/w_s_test \
 	$(BINDIR)/w_s_sim_test
 
 nufft_test: $(BINDIR)/nufft_1d_test \
-	$(BINDIR)/nufft_2d_test
+	$(BINDIR)/nufft_2d_test \
+	$(BINDIR)/nufft_2d_2_test
 
 conv_theorem_dft_test: $(BINDIR)/conv_theorem_dft_test \
 	$(BINDIR)/conv_theorem_dft_2_test
@@ -161,12 +162,14 @@ checkeg: explicit_gridder_test
 
 checkfft: nufft_test conv_theorem_dft_test
 #	@echo "NUFFT testing..."
-#	bin/nufft_1d_test 4096 4096 1e-13
-#	bin/nufft_2d_test 10 10 100 1e-12
-	@echo "DFT theorem testing..."
-	bin/conv_theorem_dft_test
-	@echo "random k testing..."
-	bin/conv_theorem_dft_2_test
+	bin/nufft_1d_test 4096 4096 1e-13
+	bin/nufft_2d_test 10 10 100 1e-12
+	bin/nufft_2d_2_test 10 10 100 1e-12
+
+# @echo "DFT theorem testing..."
+# bin/conv_theorem_dft_test
+# @echo "random k testing..."
+# bin/conv_theorem_dft_2_test
 
 python: libtest
 	cp lib/libcurafft.so python/curagridder/

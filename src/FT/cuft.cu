@@ -13,7 +13,7 @@
 #include <cuComplex.h>
 #include "utils.h"
 #include "cuft.h"
-#include "conv_invoker.h"
+#include "conv_interp_invoker.h"
 #include "deconv.h"
 
 __global__ void pre_stage_1(PCS o_center_0, PCS o_center_1, PCS o_center_2, PCS *d_u, PCS *d_v, PCS *d_w, CUCPX *d_c, int M, int flag)
@@ -35,6 +35,18 @@ __global__ void pre_stage_1(PCS o_center_0, PCS o_center_1, PCS o_center_2, PCS 
         temp.x = d_c[idx].x * cos(phase * flag) - d_c[idx].y * sin(phase * flag);
         temp.y = d_c[idx].x * sin(phase * flag) + d_c[idx].y * cos(phase * flag);
         d_c[idx] = temp;
+    }
+}
+
+void pre_stage_1_invoker(PCS *o_center, PCS *d_u, PCS *d_v, PCS *d_w, CUCPX *d_c, int M, int flag){
+    int blocksize = 512;
+    if(d_c!=NULL){
+        if (o_center[0] != 0 || o_center[1] != 0 || o_center[2] != 0)
+        {
+            // cj to cj'
+            pre_stage_1<<<(M - 1) / blocksize + 1, blocksize>>>(o_center[0], o_center[1], o_center[2], d_u, d_v, d_w, d_c, M, flag);
+            checkCudaErrors(cudaDeviceSynchronize());
+        }
     }
 }
 
@@ -61,6 +73,23 @@ __global__ void pre_stage_2(PCS i_center, PCS o_center, PCS gamma, PCS h, PCS *d
     }
 }
 
+void pre_stage_2_invoker(PCS *i_center, PCS *o_center, PCS *gamma, PCS *h, PCS *d_u, PCS *d_v, PCS *d_w, PCS *d_x, PCS *d_y, PCS *d_z, CUCPX *d_c, int M, int N1, int N2, int N3){
+    int blocksize = 512;
+    // uj to uj'', xj to xj'
+    pre_stage_2<<<(max(M, N1) - 1) / blocksize + 1, blocksize>>>(i_center[0], o_center[0], gamma[0], h[0], d_u, d_x, M, N1);
+    checkCudaErrors(cudaDeviceSynchronize());
+    if (d_v != NULL)
+    {
+        pre_stage_2<<<(max(M, N2) - 1) / blocksize + 1, blocksize>>>(i_center[1], o_center[1], gamma[1], h[1], d_u, d_x, M, N2);
+        checkCudaErrors(cudaDeviceSynchronize());
+        if (d_w != NULL)
+        {
+            pre_stage_2<<<(max(M, N3) - 1) / blocksize + 1, blocksize>>>(i_center[2], o_center[2], gamma[2], h[2], d_u, d_x, M, N3);
+            checkCudaErrors(cudaDeviceSynchronize());
+        }
+    }
+}
+
 void pre_stage_invoker(PCS *i_center, PCS *o_center, PCS *gamma, PCS *h, PCS *d_u, PCS *d_v, PCS *d_w, PCS *d_x, PCS *d_y, PCS *d_z, CUCPX *d_c, int M, int N1, int N2, int N3, int flag)
 {   
     /*
@@ -74,7 +103,8 @@ void pre_stage_invoker(PCS *i_center, PCS *o_center, PCS *gamma, PCS *h, PCS *d_
         pre_stage_1<<<(M - 1) / blocksize + 1, blocksize>>>(o_center[0], o_center[1], o_center[2], d_u, d_v, d_w, d_c, M, flag);
         checkCudaErrors(cudaDeviceSynchronize());
     }
-    // uj to uj', xj to xj'
+    
+    // uj to uj'', xj to xj'
     pre_stage_2<<<(max(M, N1) - 1) / blocksize + 1, blocksize>>>(i_center[0], o_center[0], gamma[0], h[0], d_u, d_x, M, N1);
     CHECK(cudaDeviceSynchronize());
     if (d_v != NULL)
@@ -87,6 +117,25 @@ void pre_stage_invoker(PCS *i_center, PCS *o_center, PCS *gamma, PCS *h, PCS *d_
             CHECK(cudaDeviceSynchronize());
         }
     }
+}
+
+// cufft_exec
+int cura_cufft(curafft_plan *plan){
+    int batchsize = plan->batchsize;
+    int direction = plan->iflag;
+    int remain_batch = plan->nf3 % batchsize;
+    int elem_num_wb = batchsize*plan->nf1*plan->nf2; // element number whole batches
+    int i;
+    for(i=0; i<plan->nf3/batchsize; i++){
+        CUFFT_EXEC(plan->fftplan, plan->fw+elem_num_wb*i, plan->fw+elem_num_wb*i, direction); // sychronized or not
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+    if(remain_batch!=0){
+        CUFFT_EXEC(plan->fftplan_l, plan->fw+elem_num_wb*i, plan->fw+elem_num_wb*i, direction); // sychronized or not
+        checkCudaErrors(cudaDeviceSynchronize());
+        cufftDestroy(plan->fftplan_l); // destroy here to save memory
+    }
+    return 0;
 }
 
 int setup_plan(int nf1, int nf2, int nf3, int M, PCS *d_u, PCS *d_v, PCS *d_w, CUCPX *d_c, curafft_plan *plan)
@@ -202,7 +251,7 @@ int cunufft_setting(int N1, int N2, int N3, int M, int kerevalmeth, int method, 
         M - number of nupts
         kerevalmeth - kernel (mask) function evaluation method
         method - conv method
-        direction - used for set fft flag
+        direction - conv direction
         tol - epsilon, expect error
         sigma - upsampling factor
         type - NUFT type (1 NUPT->UPT 2 UPT->NUPT 3 NUPT->NUPT)
@@ -224,9 +273,9 @@ int cunufft_setting(int N1, int N2, int N3, int M, int kerevalmeth, int method, 
     plan->type = type;
     plan->dim = dim;
     plan->execute_flow = 1;
-    int iflag = direction;
+    int iflag = direction; // error
     int fftsign = (iflag >= 0) ? 1 : -1;
-    plan->iflag = fftsign; //may be useless| conflict with direction
+    plan->iflag = fftsign; 
     plan->batchsize = 1;
     plan->copts.direction = direction; // 1 inverse, 0 forward
 
@@ -425,6 +474,45 @@ int curafft_free(curafft_plan *plan)
 }
 
 //------------------------------Below this line, all contents are just for Radio astronomy-------------------------
+__global__ void pre_stage_1(PCS i_center, PCS *d_z, CUCPX *d_fk, int N1, int N2, PCS xpixelsize, PCS ypixelsize, int flag)
+{
+    /*
+    prestage 1: cj to cj' (e^(i*x_center*u)*cj) caused by shifting
+    Input:
+        o_center_*: center of u (v,w) coordinate
+        d_u - coordinates
+        d_c - value
+        M - number of input coordinates 
+        flag - -1 or 1
+    */
+    int idx;
+    CUCPX temp;
+    for (idx = blockIdx.x * blockDim.x + threadIdx.x; idx < N1*N2; idx += gridDim.x * blockDim.x)
+    {
+        int col = idx % N1;
+        int row = idx / N1;
+        int idx_z = abs(col - N1 / 2) + abs(row - N2 / 2) * (N1 / 2 + 1);
+        PCS phase = i_center * (sqrt(1.0 - pow((row-N2/2)*xpixelsize,2) - pow((col-N1/2)*ypixelsize,2)) - 1);
+        temp.x = d_fk[idx].x * cos(phase * flag) - d_fk[idx].y * sin(phase * flag);
+        temp.y = d_fk[idx].x * sin(phase * flag) + d_fk[idx].y * cos(phase * flag);
+        d_fk[idx] = temp;
+    }
+}
+
+void pre_stage_1_invoker(PCS i_center, PCS *d_z, CUCPX *d_fk, int N1, int N2, PCS xpixelsize, PCS ypixelsize, int flag){
+    int blocksize = 512;
+    if(d_fk!=NULL){
+        if (i_center != 0)
+        {
+            // cj to cj'
+            pre_stage_1<<<(N1*N2 - 1) / blocksize + 1, blocksize>>>(i_center, d_z, d_fk, N1, N2, xpixelsize, ypixelsize, flag);
+            checkCudaErrors(cudaDeviceSynchronize());
+        }
+    }
+}
+
+
+
 __global__ void w_term_dft(CUCPX *fw, int nf1, int nf2, int nf3, int N1, int N2, PCS *z, int flag, int batchsize)
 {
     /*
@@ -479,6 +567,86 @@ __global__ void w_term_dft(CUCPX *fw, int nf1, int nf2, int nf3, int N1, int N2,
     }
 }
 
+__global__ void w_term_idft(CUCPX *fw, int nf1, int nf2, int nf3, int N1, int N2, PCS *z, int flag, PCS xpixelsize, PCS ypixelsize, PCS i_center){
+    
+    int idx; // there is another way to utilize shared memeory
+    for (idx = threadIdx.x + blockIdx.x * blockDim.x; idx < N1 * N2 * nf3; idx += gridDim.x * blockDim.x)
+    {
+        // int plane = idx / (nf1 * nf2);
+        // int row = (idx / nf1) % nf2;
+        // int col = idx % nf1;
+        int plane = idx / (N1 * N2);
+        int row = (idx / N1) % N2;
+        int col = idx % N1;
+        int idx_fw = 0;
+        int w1 = 0;
+        int w2 = 0;
+
+        w1 = col >= N1 / 2 ? col - N1 / 2 : nf1 + col - N1 / 2;
+        w2 = row >= N2 / 2 ? row - N2 / 2 : nf2 + row - N2 / 2;
+        idx_fw = w1 + w2 * nf1;
+        CUCPX temp;
+        temp.x = 0;
+        temp.y = 0;
+        
+        // double z_t_2pi = 2 * PI * (z); w have been scaling to pirange
+        // currently not support for partial computing
+        
+        int idx_z = abs(col - N1 / 2) + abs(row - N2 / 2) * (N1 / 2 + 1);
+        // in w axis the fw is 0 to N, not FFTW mode
+        PCS phase = flag * z[idx_z] * (plane-nf3/2);
+        
+        temp.x = fw[idx_fw].x * cos(phase) - fw[idx_fw].y * sin(phase);
+        temp.y = fw[idx_fw].x * sin(phase) + fw[idx_fw].y * cos(phase);
+        
+        // e(dw * gramma * s0)
+        
+        fw[idx_fw + plane*nf1*nf2] = temp;
+        if(col==N1/2&&row==N2/2){
+            printf("plane %d, fw %.6g, z %lf, result %.6g\n",plane, fw[idx_fw].x, z[idx_z], fw[idx_fw + plane*nf1*nf2].x);
+        }
+    }
+}
+
+__global__ void w_term_idft_2(CUCPX *fw, int nf1, int nf2, int nf3, int N1, int N2, PCS *z, int flag, PCS xpixelsize, PCS ypixelsize, PCS i_center){
+    
+    int idx; // there is another way to utilize shared memeory
+    for (idx = threadIdx.x + blockIdx.x * blockDim.x; idx < N1 * N2; idx += gridDim.x * blockDim.x)
+    {
+        // int plane = idx / (nf1 * nf2);
+        // int row = (idx / nf1) % nf2;
+        // int col = idx % nf1;
+        // int plane = idx / (N1 * N2);
+        int row = (idx / N1) % N2;
+        int col = idx % N1;
+        int idx_fw = 0;
+        int w1 = 0;
+        int w2 = 0;
+
+        w1 = col >= N1 / 2 ? col - N1 / 2 : nf1 + col - N1 / 2;
+        w2 = row >= N2 / 2 ? row - N2 / 2 : nf2 + row - N2 / 2;
+        idx_fw = w1 + w2 * nf1;
+        CUCPX temp;
+        temp.x = 0;
+        temp.y = 0;
+        
+        // double z_t_2pi = 2 * PI * (z); w have been scaling to pirange
+        // currently not support for partial computing
+        int idx_z = abs(col - N1 / 2) + abs(row - N2 / 2) * (N1 / 2 + 1);
+        for(int plane=1; plane<nf3; plane++){
+            PCS phase = flag * z[idx_z] * (plane-nf3/2); 
+            temp.x = fw[idx_fw].x * cos(phase) - fw[idx_fw].y * sin(phase);
+            temp.y = fw[idx_fw].x * sin(phase) + fw[idx_fw].y * cos(phase);
+            fw[idx_fw + plane*nf1*nf2] = temp;
+        }
+        PCS phase = flag * z[idx_z] * (-nf3/2); 
+        temp.x = fw[idx_fw].x * cos(phase) - fw[idx_fw].y * sin(phase);
+        temp.y = fw[idx_fw].x * sin(phase) + fw[idx_fw].y * cos(phase);
+        fw[idx_fw] = temp;
+
+    }
+}
+
 void curadft_invoker(curafft_plan *plan, PCS xpixelsize, PCS ypixelsize)
 {
     /*
@@ -493,13 +661,26 @@ void curadft_invoker(curafft_plan *plan, PCS xpixelsize, PCS ypixelsize)
     int nf3 = plan->nf3;
     int N1 = plan->ms;
     int N2 = plan->mt;
-    int batchsize = plan->batchsize;
-    int flag = plan->mode_flag;
+    int batchsize = plan->nf3;
+    int flag = plan->iflag;
+    
     int num_threads = 512;
+    if (flag==1){
+        dim3 block(num_threads);
+        dim3 grid((N1 * N2 - 1) / num_threads + 1);
+        w_term_dft<<<grid, block>>>(plan->fw, nf1, nf2, nf3, N1, N2, plan->d_x, flag, batchsize);
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+    else {
+        PCS i_center = plan->ta.i_center[0];
+        // * e(-c*i*(n_lm-1)) // n_lm-1 -> z, c
+        dim3 block(num_threads); 
+        dim3 grid((N1 * N2 - 1) / num_threads + 1);
+        // dim3 grid((N1*N2*nf3-1)/num_threads+1);
 
-    dim3 block(num_threads);
-    dim3 grid((N1 * N2 - 1) / num_threads + 1);
-    w_term_dft<<<grid, block>>>(plan->fw, nf1, nf2, nf3, N1, N2, plan->d_x, flag, batchsize);
-    checkCudaErrors(cudaDeviceSynchronize());
+        // PCS adt = plan->ta.gamma[0] * plan->ta.h[0] * plan->ta.o_center[0];
+        w_term_idft_2<<<grid,block>>>(plan->fw, nf1, nf2, nf3, N1, N2, plan->d_x, flag, xpixelsize, ypixelsize, i_center);
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
     return;
 }

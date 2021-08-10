@@ -21,8 +21,9 @@ Issue: Revise for batch
 #include <thrust/device_ptr.h>
 #include <thrust/scan.h>
 #include <thrust/reduce.h>
-#include "conv_invoker.h"
+#include "conv_interp_invoker.h"
 #include "conv.h"
+#include "interp.h"
 #include "utils.h"
 
 int get_num_cells(int ms, conv_opts copts)
@@ -205,6 +206,106 @@ int curafft_conv(curafft_plan * plan)
     break;
   case 3:
     conv_3d_invoker(nf1, nf2, nf3, M, plan);
+    break;
+  default:
+    ier = 1; // error
+    break;
+  }
+
+  return ier;
+}
+
+
+int interp_1d_invoker(int nf1, int M, curafft_plan *plan){
+  /*
+    convolution invoker, invoke the kernel function
+    nf1 - grid size in 1D
+    M - number of points
+  */
+  dim3 grid;
+  dim3 block;
+  if (plan->opts.gpu_gridder_method == 0)
+  {
+    block.x = 256; // 256 threads per block
+    grid.x = (M - 1) / block.x + 1; // number of blocks
+
+    // if the image resolution is small, the memory is sufficiently large for output after conv. 
+    interp_1d_nputsdriven<<<grid, block>>>(plan->d_u, plan->d_c, plan->fw, plan->M,
+                                          plan->copts.kw, nf1, plan->copts.ES_c, plan->copts.ES_beta, 
+                                          plan->copts.pirange, plan->cell_loc);
+
+    checkCudaErrors(cudaDeviceSynchronize());
+  }
+  return 0;
+}
+
+int interp_2d_invoker(int nf1, int nf2, int M, curafft_plan *plan)
+{
+
+  dim3 grid;
+  dim3 block;
+  
+  if (plan->opts.gpu_gridder_method == 0)
+  {
+    block.x = 256;
+    grid.x = (M - 1) / block.x + 1;
+
+    // if the image resolution is small, the memory is sufficiently large for output after conv. 
+    interp_2d_nputsdriven<<<grid, block>>>(plan->d_u, plan->d_v, plan->d_c, plan->fw, plan->M,
+                                          plan->copts.kw, nf1, nf2, plan->copts.ES_c, plan->copts.ES_beta, 
+                                          plan->copts.pirange, plan->cell_loc);
+    
+
+    checkCudaErrors(cudaDeviceSynchronize());
+  }
+
+  return 0;
+}
+
+int interp_3d_invoker(int nf1, int nf2, int nf3, int M, curafft_plan *plan)
+{
+
+  dim3 grid;
+  dim3 block;
+  
+  if (plan->opts.gpu_gridder_method == 0)
+  {
+    block.x = 256;
+    grid.x = (M - 1) / block.x + 1;
+    // if the image resolution is small, the memory is sufficiently large for output after conv. 
+    interp_3d_nputsdriven<<<grid, block>>>(plan->d_u, plan->d_v, plan->d_w, plan->d_c, plan->fw, plan->M,
+                                          plan->copts.kw, nf1, nf2, nf3, plan->copts.ES_c, plan->copts.ES_beta,
+                                          plan->copts.pirange, plan->cell_loc);
+    
+
+    checkCudaErrors(cudaDeviceSynchronize());
+  }
+
+  return 0;
+}
+
+int curafft_interp(curafft_plan * plan)
+{
+  /*
+  ---- convolution opertion ----
+  */
+
+  int ier = 0;
+  int nf1 = plan->nf1;
+  int nf2 = plan->nf2;
+  int nf3 = plan->nf3;
+  int M = plan->M;
+  // printf("w_term_method %d\n",plan->w_term_method);
+  switch (plan->dim)
+  {
+  case 1:
+    interp_1d_invoker(nf1, M, plan);
+    break;
+  case 2:
+    interp_2d_invoker(nf1, nf2, M, plan);
+    break;
+  case 3:
+    interp_3d_invoker(nf1, nf2, nf3, M, plan);
     break;
   default:
     ier = 1; // error

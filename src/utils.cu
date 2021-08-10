@@ -170,6 +170,22 @@ int matrix_elementwise_multiply_invoker(CUCPX *a, PCS *b, int N){
   return ier;
 }
 
+__global__ void matrix_elementwise_divide(CUCPX *a, PCS *b, int N){
+  int idx;
+  for(idx = threadIdx.x+blockIdx.x*blockDim.x; idx<N; idx+=gridDim.x*blockDim.x){
+    a[idx].x = a[idx].x/b[idx];
+    a[idx].y = a[idx].y/b[idx];
+  }
+}
+
+int matrix_elementwise_divide_invoker(CUCPX *a, PCS *b, int N){
+  int ier=0;
+  int blocksize = 512;
+  matrix_elementwise_multiply<<<(N-1)/blocksize+1,blocksize>>>(a,b,N);
+  checkCudaErrors(cudaDeviceSynchronize());
+  return ier;
+}
+
 void GPU_info()
 {
 

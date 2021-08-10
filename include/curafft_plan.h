@@ -30,7 +30,7 @@ struct conv_opts{
   /*
     options for convolutional gridding process
     kw - w, the kernel width (number of grid cells)
-    direction - 1 means inverse NU->U, 0 means forward interpolate U->NU //changed
+    direction - 1 means  NU->U, 0 means  interpolate U->NU 
     pirange - 0: coords in [0,N), 1 coords in [-pi,pi) or can be shifted into pirange, 2 coords is nature number for scaling
     upsampfac - sigma, upsampling factor, default 2.0
     ES_beta
@@ -53,6 +53,7 @@ struct curafft_plan
     conv_opts copts;
 	//cufft
     cufftHandle fftplan;
+	cufftHandle fftplan_l; // when elements number is larger than 128million, one more plan is needed. 
 	//A stream in CUDA is a sequence of operations that execute on the device in the order in which they are issued 
 	//by the host code. While operations within a stream are guaranteed to execute in the prescribed order, operations
 	//in different streams can be interleaved and, when possible, they can even run concurrently.

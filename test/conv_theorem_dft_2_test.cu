@@ -9,7 +9,7 @@ using namespace thrust;
 
 
 #include "ragridder_plan.h"
-#include "conv_invoker.h"
+#include "conv_interp_invoker.h"
 #include "cuft.h"
 #include "deconv.h"
 #include "cugridder.h"

@@ -44,18 +44,24 @@ def _get_ctypes(dtype):
     return REAL_t, REAL_ptr
 
 
-ms2dirty = lib.ms2dirty
+ms2dirty_1 = lib.ms2dirty_1
 # the last two parameters have default value
-ms2dirty.argtypes = [c_int, c_int, c_int, c_double, c_double, np.ctypeslib.ndpointer(np.double, flags='C'),
+ms2dirty_1.argtypes = [c_int, c_int, c_int, c_double, c_double, np.ctypeslib.ndpointer(np.double, flags='C'),
                      np.ctypeslib.ndpointer(np.complex128, flags='C'), np.ctypeslib.ndpointer(np.complex128, flags='C'), c_double, c_double] 
-ms2dirty.restype = c_int
+ms2dirty_1.restype = c_int
 
 ms2dirty_2 = lib.ms2dirty_2
 ms2dirty_2.argtypes = [c_int, c_int, c_int, c_double, c_double, np.ctypeslib.ndpointer(np.double, flags='C'),
                      np.ctypeslib.ndpointer(np.complex128, flags='C'), np.ctypeslib.ndpointer(np.double, flags='C'), np.ctypeslib.ndpointer(np.complex128, flags='C'), c_double, c_double] 
 ms2dirty_2.restype = c_int
 
-def imaging_ms2dirty(uvw, freq, ms, wgt, dirty, fov, epsilon=1e-6,sigma=1.25):
+dirty2ms_1 = lib.dirty2ms_1
+# the last two parameters have default value
+dirty2ms_1.argtypes = [c_int, c_int, c_int, c_double, c_double, np.ctypeslib.ndpointer(np.double, flags='C'),
+                     np.ctypeslib.ndpointer(np.complex128, flags='C'), np.ctypeslib.ndpointer(np.complex128, flags='C'), c_double, c_double] 
+dirty2ms_1.restype = c_int
+
+def ms2dirty(uvw, freq, ms, wgt, dirty, fov, epsilon=1e-6,sigma=1.25):
     """
     Generate an image from visibility by non-uniform fourier transform
     Arguments:
@@ -77,10 +83,38 @@ def imaging_ms2dirty(uvw, freq, ms, wgt, dirty, fov, epsilon=1e-6,sigma=1.25):
     # v = np.ctypeslib.as_ctypes(uvw[:,1])
     # w = np.ctypeslib.as_ctypes(uvw[:,2])
     if(wgt==None):
-        ms2dirty(nrow,nxdirty,nydirty,fov,freq[0],uvw
+        ms2dirty_1(nrow,nxdirty,nydirty,fov,freq[0],uvw
             ,ms,dirty,epsilon,sigma)
     else:
         ms2dirty_2(nrow,nxdirty,nydirty,fov,freq[0],uvw
                 ,ms,wgt,dirty,epsilon,sigma)
 
     return dirty
+
+def dirty2ms(uvw, freq, ms, wgt, dirty, fov, epsilon=1e-6,sigma=1.25):
+    """
+    Generate an image from visibility by non-uniform fourier transform
+    Arguments:
+        uvw - 3D coordinates, numpy array, shape - (nrow,3)
+        freq - frequencies
+        ms - visibility, shape - (nrow,)
+        wgt - weight
+        nxdirty, nydirty - image size
+        fov - field of view
+        epsilon - tolerance of relative error (expect, default 1e-6)
+        sigma - upsampling factor for grid (default 1.25)
+    Return:
+        vis - shape-[M,]
+    """
+    nrow = uvw.shape[0]
+    nxdirty = dirty.shape[0]
+    nydirty = dirty.shape[1]
+    # u = np.ctypeslib.as_ctypes(uvw[:,0])
+    # v = np.ctypeslib.as_ctypes(uvw[:,1])
+    # w = np.ctypeslib.as_ctypes(uvw[:,2])
+    if(wgt==None):
+        dirty2ms_1(nrow,nxdirty,nydirty,fov,freq[0],uvw
+            ,ms,dirty,epsilon,sigma)
+    else:
+        return None
+    return ms

@@ -67,24 +67,27 @@ int main(int argc, char *argv[])
 	CPX *c;
 	u = (PCS *)malloc(M * sizeof(PCS)); //Allocates page-locked memory on the host.
 	v = (PCS *)malloc(M * sizeof(PCS));
-	c = (CPX *)malloc(M * sizeof(CPX));
 	PCS *d_u, *d_v;
 	CUCPX *d_c, *d_fk;
 	CUCPX *d_fw;
 	checkCudaErrors(cudaMalloc(&d_u, M * sizeof(PCS)));
 	checkCudaErrors(cudaMalloc(&d_v, M * sizeof(PCS)));
 	checkCudaErrors(cudaMalloc(&d_c, M * sizeof(CUCPX)));
-
+    checkCudaErrors(cudaMalloc(&d_fk, N1*N2*sizeof(CUCPX)));
 	// generating data
 	for (int i = 0; i < M; i++)
 	{
 		u[i] = randm11()*PI; //xxxxx
+        printf("%lf ",u[i]);
 		v[i] = randm11()*PI;
-		c[i].real(randm11()); // M vis per channel, weight?
-		c[i].imag(randm11());
 		// wgt[i] = 1;
 	}
-
+    printf("\n");
+    CPX *fk = (CPX*) malloc(sizeof(CPX)*N1*N2);
+    for(int i=0; i<N1*N2; i++){
+        fk[i].real(1.0);
+        fk[i].imag(1.0);
+    }
 	// double a[5] = {-PI/2, -PI/3, 0, PI/3, PI/2}; // change to random data
 	// for(int i=0; i<M; i++){
 	// 	u[i] = a[i/5];
@@ -110,7 +113,8 @@ int main(int argc, char *argv[])
 	//data transfer
 	checkCudaErrors(cudaMemcpy(d_u, u, M * sizeof(PCS), cudaMemcpyHostToDevice)); //u
 	checkCudaErrors(cudaMemcpy(d_v, v, M * sizeof(PCS), cudaMemcpyHostToDevice)); //v
-	checkCudaErrors(cudaMemcpy(d_c, c, M * sizeof(CUCPX), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_fk, fk, N1 * N2 * sizeof(CUCPX), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemset(d_c, 0, M * sizeof(CUCPX)));
 
 	/* ----------Step2: plan setting------------*/
 	curafft_plan *plan;
@@ -118,7 +122,7 @@ int main(int argc, char *argv[])
 	plan = new curafft_plan();
     memset(plan, 0, sizeof(curafft_plan));
 
-	int direction = 1; //inverse
+	int direction = 0; 
 	
 	// opts and copts setting
     plan->opts.gpu_device_id = 0;
@@ -130,6 +134,7 @@ int main(int argc, char *argv[])
     plan->opts.gpu_kerevalmeth = kerevalmeth;
     plan->opts.gpu_conv_only = 0;
     plan->opts.gpu_gridder_method = method;
+    plan->type = 2;
 
     ier = setup_conv_opts(plan->copts, epsilon, sigma, 1, direction, kerevalmeth); //check the arguements
 
@@ -143,20 +148,19 @@ int main(int argc, char *argv[])
     int nf2 = get_num_cells(N2,plan->copts);
     
     plan->dim = 2;
-	plan->type = 1;
     setup_plan(nf1, nf2, 1, M, d_u, d_v, NULL, d_c, plan);
 
 	plan->ms = N1;
 	plan->mt = N2;
 	plan->mu = 1;
     plan->execute_flow = 1;
-	int iflag = direction;
+	int iflag = -1;
     int fftsign = (iflag>=0) ? 1 : -1;
 
 	plan->iflag = fftsign; //may be useless| conflict with direction
 	plan->batchsize = 1;
 
-    plan->copts.direction = direction; // 1 inverse, 0 forward
+    plan->copts.direction = direction; // related to type
 
     // // fw allocation
     // checkCudaErrors(cudaMalloc((void**)&plan->fw,sizeof(CUCPX)*nf1*nf2*nf3));
@@ -168,6 +172,13 @@ int main(int argc, char *argv[])
     // onedim_fseries_kernel_seq(plan->nf2, fwkerhalf2, plan->copts);
 
 	fourier_series_appro_invoker(plan->fwkerhalf1, plan->copts, plan->nf1/2+1);
+    printf("correction factor printing...\n");
+    PCS *corr = (PCS*) malloc(sizeof(PCS)*(plan->nf1/2+1));
+    checkCudaErrors(cudaMemcpy(corr,plan->fwkerhalf1,sizeof(PCS)*(plan->nf1/2+1),cudaMemcpyDeviceToHost));
+    for(int i=0; i<10; i++){
+        printf("%.3lf ",corr[i]);
+    }
+    printf("\n");
 	fourier_series_appro_invoker(plan->fwkerhalf2, plan->copts, plan->nf2/2+1);
 
 #ifdef DEBUG
@@ -240,11 +251,20 @@ int main(int argc, char *argv[])
 	checkCudaErrors(cudaMemset(d_fw, 0, sizeof(CUCPX)*nf1*nf2));
 	plan->fw = d_fw;
 	// fk malloc and set
-	checkCudaErrors(cudaMalloc((void**)&d_fk,sizeof(CUCPX)*N1*N2));
+	// checkCudaErrors(cudaMalloc((void**)&d_fk,sizeof(CUCPX)*N1*N2));
 	plan->fk = d_fk;
 
 	// calulating result
-	curafft_conv(plan);
+	curafft_deconv(plan);
+    printf("deconv result printing...\n");
+    CPX *fw = (CPX *)malloc(sizeof(CPX)*nf1*nf2);
+	cudaMemcpy(fw,plan->fw,sizeof(CUCPX)*nf1*nf2,cudaMemcpyDeviceToHost);
+	for(int i=0; i<nf2; i++){
+		for(int j=0; j<nf1; j++){
+			printf("%.3g ",fw[i*nf1+j].real());
+		}
+		printf("\n");
+	}
 #ifdef DEBUG
 	printf("conv result printing...\n");
 	CPX *fw = (CPX *)malloc(sizeof(CPX)*nf1*nf2);
@@ -260,9 +280,10 @@ int main(int argc, char *argv[])
 	printf("fft(0,0) %.3g\n",temp_res);
 #endif
 	// fft
-	CUFFT_EXEC(plan->fftplan, plan->fw, plan->fw, direction);
-#ifdef DEBUG 
+	CUFFT_EXEC(plan->fftplan, plan->fw, plan->fw, plan->iflag);
+// #ifdef DEBUG 
 	printf("fft result printing...\n");
+    // CPX *fw = (CPX *)malloc(sizeof(CPX)*nf1*nf2);
 	cudaMemcpy(fw,plan->fw,sizeof(CUCPX)*nf1*nf2,cudaMemcpyDeviceToHost);
 	for(int i=0; i<nf2; i++){
 		for(int j=0; j<nf1; j++){
@@ -271,7 +292,7 @@ int main(int argc, char *argv[])
 		printf("\n");
 	}
 	free(fw);
-#endif
+// #endif
 	// printf("correction factor printing...\n");
 	// for(int i=0; i<N1/2; i++){
 	// 	printf("%.3g ",fwkerhalf1[i]);
@@ -282,44 +303,43 @@ int main(int argc, char *argv[])
 	// }
 	// printf("\n");
 	// deconv
-	ier = curafft_deconv(plan);
+	ier = curafft_interp(plan);
 
-	CPX *fk = (CPX *)malloc(sizeof(CPX)*N1*N2);
-	checkCudaErrors(cudaMemcpy(fk,plan->fk,sizeof(CUCPX)*N1*N2, cudaMemcpyDeviceToHost));
+    c = (CPX *)malloc(M * sizeof(CPX));
+
+	checkCudaErrors(cudaMemcpy(c,plan->d_c,sizeof(CUCPX)*M, cudaMemcpyDeviceToHost));
 	
 	// result printing
 	printf("final result printing...\n");
-	for(int i=0; i<N2; i++){
-		for(int j=0; j<N1; j++){
-			printf("%.10lf ",fk[i*N1+j].real());
-		}
-		printf("\n");
+	for(int i=0; i<M; i++){
+			printf("%.10lf ",c[i].real());
+		
 	}
 
 	printf("ground truth printing...\n");
-	CPX *truth = (CPX *) malloc(sizeof(CPX)*N1*N2);
+	CPX *truth = (CPX *) malloc(sizeof(CPX)*M);
 	CPX Ft = CPX(0,0), J = IMA*(PCS)iflag;
-	for(int i=0; i<N2; i++){
-		for(int j=0; j<N1; j++){
-			for (int k=0; k<M; ++k)
-				Ft += c[k] * exp(J*((j-N1/2)*u[k]+(i-N2/2)*v[k]));   // crude direct
-			truth[i*N1+j] = Ft;
-			printf("%.10lf ",Ft.real());
-			Ft.real(0);
-			Ft.imag(0);
+	for (int k=0; k<M; ++k){
+        for(int i=0; i<N2; i++){
+		    for(int j=0; j<N1; j++)
+                Ft += fk[i*N1+j]*exp(J*((j-N1/2)*u[k]+(i-N2/2)*v[k]));
 		}
-		printf("\n");
+		printf("%lf ",Ft);
+        truth[k] = Ft;
+        Ft.real(0);
+        Ft.imag(0);
 	}
+    printf("\n");
 
 	double max=0;
 	double l2_max=0;
 	double fk_max = 0;
 	for(int i=0; i<M; i++){
-		if(abs(fk[i].real())>fk_max)fk_max = abs(fk[i].real());
+		if(abs(c[i].real())>fk_max)fk_max = abs(c[i].real());
 	}
 	printf("fk max %lf\n",fk_max);
-	for(int i=0; i<N1*N2; i++){
-		double temp = abs(truth[i].real()-fk[i].real());
+	for(int i=0; i<M; i++){
+		double temp = abs(truth[i].real()-c[i].real());
 		if(temp>max) max = temp;
 		if(temp/fk_max > l2_max) l2_max = temp/fk_max;
 	}
