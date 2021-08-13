@@ -28,12 +28,12 @@ int main(int argc, char *argv[])
 
 	// issue related to accuary - how to set sigma, epsilon, number of plane, beta and kw. the number of w plane may need to increase.
 	int ier = 0;
-	int N = 100;
+	int N = 1;
 	PCS sigma = 2; // upsampling factor
 	int M = 100;
 
 	
-	PCS epsilon = 1e-6;
+	PCS epsilon = 1e-12;
 	
 	int kerevalmeth = 0;
 	
@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
 	// generating data
 	for (int i = 0; i < M; i++)
 	{
-		u[i] = 2.0 + i*PI/(double)M; //xxxxx
+		u[i] = 2.0 + (double)i; //xxxxx
 		c[i].real(randm11()*1000);
 		c[i].imag(i);
 		// wgt[i] = 1;
@@ -70,7 +70,6 @@ int main(int argc, char *argv[])
 		 k[i] = -(double)i/(double)N;
 		// k[i] = i/(double)N;
 		// k[i] = i-N/2 + randm11();
-		 printf("%.10lf ",k[i]);
 
 	}
 	printf("\n");
@@ -145,27 +144,7 @@ int main(int argc, char *argv[])
 		{
 			if(j<nf1/2)fk[i] += fw[j+nf1/2] * exp((PCS)j * kp[i] * IMA);
 			else fk[i] += fw[j-nf1/2] * exp(((PCS)j-(PCS)nf1) * kp[i] * IMA); // does j need to change?
-			// decompose those calculation in order to reach better precision
-			// double temp1;
-			// int idx = j + plan->nf1/2;
-			// temp1 = (double)j/(double)nf1;
-			// if(j>=nf1/2){
-			// 	temp1 = temp1 - 1.00000000;
-			// 	idx -= nf1;
-			// }
-			// temp1 *=PI * 2.0000000000;
-			// temp1 *= k[i];
-		    // fk[i] = fk[i] + fw[idx]*exp((double)temp1*IMA);
-		    
-			// 
-			// fk[i].real( temp2 );
-			// fk[i].imag( temp3 );
-            // if(j<nf1/2){
-            //     fk[i] += fw[j+nf1/2]*exp(k[i]*(((PCS)j)/((PCS)nf1)*2.0*PI*IMA));
-            // }
-            // else{
-            //     fk[i] += fw[j-nf1/2]*exp(k[i]*((j-nf1)/((PCS)nf1) )*2.0*PI*IMA); // decompose
-            // }
+		
 		}
 		
 	}

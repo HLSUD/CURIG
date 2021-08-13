@@ -97,16 +97,19 @@ void pre_stage_invoker(PCS *i_center, PCS *o_center, PCS *gamma, PCS *h, PCS *d_
     */
     // Specified for input and output transform
     int blocksize = 512;
-    if (o_center[0] != 0 || o_center[1] != 0 || o_center[2] != 0)
-    {
-        // cj to cj'
-        pre_stage_1<<<(M - 1) / blocksize + 1, blocksize>>>(o_center[0], o_center[1], o_center[2], d_u, d_v, d_w, d_c, M, flag);
-        checkCudaErrors(cudaDeviceSynchronize());
+    if (flag==1){
+        if (o_center[0] != 0 || o_center[1] != 0 || o_center[2] != 0)
+        {
+            // cj to cj'
+            pre_stage_1<<<(M - 1) / blocksize + 1, blocksize>>>(o_center[0], o_center[1], o_center[2], d_u, d_v, d_w, d_c, M, flag);
+            checkCudaErrors(cudaDeviceSynchronize());
+        }
     }
+    
     
     // uj to uj'', xj to xj'
     pre_stage_2<<<(max(M, N1) - 1) / blocksize + 1, blocksize>>>(i_center[0], o_center[0], gamma[0], h[0], d_u, d_x, M, N1);
-    CHECK(cudaDeviceSynchronize());
+    checkCudaErrors(cudaDeviceSynchronize());
     if (d_v != NULL)
     {
         pre_stage_2<<<(max(M, N2) - 1) / blocksize + 1, blocksize>>>(i_center[1], o_center[1], gamma[1], h[1], d_u, d_x, M, N2);
@@ -273,8 +276,8 @@ int cunufft_setting(int N1, int N2, int N3, int M, int kerevalmeth, int method, 
     plan->type = type;
     plan->dim = dim;
     plan->execute_flow = 1;
-    int iflag = direction; // error
-    int fftsign = (iflag >= 0) ? 1 : -1;
+    
+    int fftsign = (direction > 0) ? 1 : -1;
     plan->iflag = fftsign; 
     plan->batchsize = 1;
     plan->copts.direction = direction; // 1 inverse, 0 forward
@@ -327,8 +330,8 @@ int cunufft_setting(int N1, int N2, int N3, int M, int kerevalmeth, int method, 
             
             // set scaling ratio (gamma), type3 grid size and grid cell length
             set_nhg_type3(plan->ta.o_half_width[0], plan->ta.i_half_width[0], plan->copts, nf1, plan->ta.h[0], plan->ta.gamma[0]);
-            printf("U_width %lf, U_center %lf, X_width %lf, X_center %lf, gamma %lf, nf %d\n",
-                   plan->ta.i_half_width[0], plan->ta.i_center[0], plan->ta.o_half_width[0], plan->ta.o_center[0], plan->ta.gamma[0], plan->nf1);
+            // printf("U_width %lf, U_center %lf, X_width %lf, X_center %lf, gamma %lf, nf %d\n",
+                   //plan->ta.i_half_width[0], plan->ta.i_center[0], plan->ta.o_half_width[0], plan->ta.o_center[0], plan->ta.gamma[0], plan->nf1);
             
             // u_j to u_j' x_k to x_k' c_j to c_j'
             pre_stage_invoker(plan->ta.i_center, plan->ta.o_center, plan->ta.gamma, plan->ta.h, d_u, NULL, NULL, plan->d_x, NULL, NULL, d_c, M, N1, 1, 1, plan->iflag);
@@ -368,7 +371,7 @@ int cunufft_setting(int N1, int N2, int N3, int M, int kerevalmeth, int method, 
     }
 
     setup_plan(nf1, nf2, nf3, M, d_u, d_v, d_w, d_c, plan);
-
+    
 
     // index sort and type 2 setting ignore
     // calculating correction factor
@@ -397,7 +400,7 @@ int cunufft_setting(int N1, int N2, int N3, int M, int kerevalmeth, int method, 
         int inembed[] = {plan->nf1};
         int onembed[] = {plan->nf1};
         cufftPlanMany(&fftplan, 1, n, inembed, 1, inembed[0],
-                      onembed, 1, onembed[0], CUFFT_TYPE, plan->batchsize);
+                      onembed, 1, onembed[0], CUFFT_TYPE, plan->batchsize); // batch issue
     }
     if (dim == 2)
     {

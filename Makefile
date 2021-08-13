@@ -107,10 +107,12 @@ w_s_test: $(BINDIR)/w_s_test \
 
 nufft_test: $(BINDIR)/nufft_1d_test \
 	$(BINDIR)/nufft_2d_test \
-	$(BINDIR)/nufft_2d_2_test
+	$(BINDIR)/nufft_2d_2_test \
+	$(BINDIR)/nufft_1d_3_1_test \
+	$(BINDIR)/nufft_1d_3_2_test
 
-conv_theorem_dft_test: $(BINDIR)/conv_theorem_dft_test \
-	$(BINDIR)/conv_theorem_dft_2_test
+adjointness_test: $(BINDIR)/adjointness_1d_test
+
 
 $(BINDIR)/%: test/%.o $(CURAFFTOBJS_64) $(CURAFFTOBJS)
 	mkdir -p $(BINDIR)
@@ -160,11 +162,20 @@ checkeg: explicit_gridder_test
 	@echo "Explicit gridder testing..."
 	bin/explicit_gridder_test 20 20 20 10
 
-checkfft: nufft_test conv_theorem_dft_test
+checkfft: nufft_test
 #	@echo "NUFFT testing..."
-	bin/nufft_1d_test 4096 4096 1e-13
-	bin/nufft_2d_test 10 10 100 1e-12
-	bin/nufft_2d_2_test 10 10 100 1e-12
+# bin/nufft_1d_test 4096 4096 1e-13
+# bin/nufft_2d_test 10 10 100 1e-12
+# bin/nufft_2d_2_test 10 10 100 1e-12
+# bin/nufft_2d_2_test 100 100 10000 1e-12
+	bin/nufft_1d_3_1_test
+	bin/nufft_1d_3_2_test
+
+
+checkadjoint: adjointness_test
+	@echo "adjointness testing..."
+	bin/adjointness_1d_test
+
 
 # @echo "DFT theorem testing..."
 # bin/conv_theorem_dft_test

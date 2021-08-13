@@ -1,10 +1,9 @@
-//------ convolutional gridding -------
 /*
-    Gridding on GPU
+    Interp on GPU
 	Fucntions:
 		1. val_kernel_vec
-		2. conv_*d_nputsdriven
-		3. partial_3d_conv_sorted
+		2. interp_*d_nputsdriven
+		
 */
 
 #include <math.h>
@@ -28,10 +27,10 @@ __global__ void interp_1d_nputsdriven(PCS *x, CUCPX *c, CUCPX *fw, int M,
 									const int ns, int nf1, PCS es_c, PCS es_beta, int pirange, INT_M *cell_loc)
 {
 	/*
-	Input driven convolution
-		x - input location, range: [-pi,pi)
-		c - complex number
-		fw - result
+	Output driven convolution
+		x - output location, range: [-pi,pi)
+		c - complex number result
+		fw - input
 		M - number of nupts
 		ns - kernel width
 		nf1 - upts after upsampling
@@ -50,7 +49,6 @@ __global__ void interp_1d_nputsdriven(PCS *x, CUCPX *c, CUCPX *fw, int M,
 
 	for (idx = blockIdx.x * blockDim.x + threadIdx.x; idx < M; idx += gridDim.x * blockDim.x)
 	{
-
 		//value of x, shift and rescale to [0,N) and get the locations
 		temp1 = SHIFT_RESCALE(x[idx], nf1, pirange);
 		if (cell_loc != NULL)
@@ -59,9 +57,8 @@ __global__ void interp_1d_nputsdriven(PCS *x, CUCPX *c, CUCPX *fw, int M,
 		//change rescaled to cell_loc
 		xstart = ceil(temp1 - ns / 2.0);
 		xend = floor(temp1 + ns / 2.0);
-
+		
 		PCS x_1 = (PCS)xstart - temp1; // distance from first in range grid point to input coordinate
-
 		val_kernel_vec(ker1, x_1, ns, es_c, es_beta);
 		for (int xx = xstart; xx <= xend; xx++)
 		{
@@ -71,6 +68,7 @@ __global__ void interp_1d_nputsdriven(PCS *x, CUCPX *c, CUCPX *fw, int M,
 			c[idx].x += fw[indx].x * kervalue;
 			c[idx].y += fw[indx].y * kervalue;
 		}
+		
 	}
 }
 
