@@ -10,11 +10,11 @@
 int main(int argc, char* argv[]){
 
     PCS *arr, *d_arr;
-    int n = 100000;
+    int n = 10;
     arr = (PCS *) malloc (sizeof(PCS)*n);
     for(int i=0; i<n; i++){
         arr[i] = randm11()*0.5*PI; //convert to int for checking
-        //printf("%.3g ", arr[i]);
+        printf("%.3g ", arr[i]);
     }
     printf("\n");
     checkCudaErrors(cudaMalloc((void **)&d_arr, sizeof(PCS)*n));

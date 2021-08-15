@@ -63,6 +63,7 @@ __global__ void pre_stage_2(PCS i_center, PCS o_center, PCS gamma, PCS h, PCS *d
         N - number of v
     */
     int idx;
+    
     for (idx = blockIdx.x * blockDim.x + threadIdx.x; idx < M; idx += gridDim.x * blockDim.x)
     {
         d_u[idx] = (d_u[idx] - i_center) / gamma;
@@ -570,48 +571,8 @@ __global__ void w_term_dft(CUCPX *fw, int nf1, int nf2, int nf3, int N1, int N2,
     }
 }
 
-__global__ void w_term_idft(CUCPX *fw, int nf1, int nf2, int nf3, int N1, int N2, PCS *z, int flag, PCS xpixelsize, PCS ypixelsize, PCS i_center){
-    
-    int idx; // there is another way to utilize shared memeory
-    for (idx = threadIdx.x + blockIdx.x * blockDim.x; idx < N1 * N2 * nf3; idx += gridDim.x * blockDim.x)
-    {
-        // int plane = idx / (nf1 * nf2);
-        // int row = (idx / nf1) % nf2;
-        // int col = idx % nf1;
-        int plane = idx / (N1 * N2);
-        int row = (idx / N1) % N2;
-        int col = idx % N1;
-        int idx_fw = 0;
-        int w1 = 0;
-        int w2 = 0;
 
-        w1 = col >= N1 / 2 ? col - N1 / 2 : nf1 + col - N1 / 2;
-        w2 = row >= N2 / 2 ? row - N2 / 2 : nf2 + row - N2 / 2;
-        idx_fw = w1 + w2 * nf1;
-        CUCPX temp;
-        temp.x = 0;
-        temp.y = 0;
-        
-        // double z_t_2pi = 2 * PI * (z); w have been scaling to pirange
-        // currently not support for partial computing
-        
-        int idx_z = abs(col - N1 / 2) + abs(row - N2 / 2) * (N1 / 2 + 1);
-        // in w axis the fw is 0 to N, not FFTW mode
-        PCS phase = flag * z[idx_z] * (plane-nf3/2);
-        
-        temp.x = fw[idx_fw].x * cos(phase) - fw[idx_fw].y * sin(phase);
-        temp.y = fw[idx_fw].x * sin(phase) + fw[idx_fw].y * cos(phase);
-        
-        // e(dw * gramma * s0)
-        
-        fw[idx_fw + plane*nf1*nf2] = temp;
-        if(col==N1/2&&row==N2/2){
-            printf("plane %d, fw %.6g, z %lf, result %.6g\n",plane, fw[idx_fw].x, z[idx_z], fw[idx_fw + plane*nf1*nf2].x);
-        }
-    }
-}
-
-__global__ void w_term_idft_2(CUCPX *fw, int nf1, int nf2, int nf3, int N1, int N2, PCS *z, int flag, PCS xpixelsize, PCS ypixelsize, PCS i_center){
+__global__ void w_term_idft(CUCPX *fw, int nf1, int nf2, int nf3, int N1, int N2, PCS *z, int flag){
     
     int idx; // there is another way to utilize shared memeory
     for (idx = threadIdx.x + blockIdx.x * blockDim.x; idx < N1 * N2; idx += gridDim.x * blockDim.x)
@@ -620,7 +581,7 @@ __global__ void w_term_idft_2(CUCPX *fw, int nf1, int nf2, int nf3, int N1, int 
         // int row = (idx / nf1) % nf2;
         // int col = idx % nf1;
         // int plane = idx / (N1 * N2);
-        int row = (idx / N1) % N2;
+        int row = idx / N1;
         int col = idx % N1;
         int idx_fw = 0;
         int w1 = 0;
@@ -675,14 +636,13 @@ void curadft_invoker(curafft_plan *plan, PCS xpixelsize, PCS ypixelsize)
         checkCudaErrors(cudaDeviceSynchronize());
     }
     else {
-        PCS i_center = plan->ta.i_center[0];
+        // PCS i_center = plan->ta.i_center[0];
         // * e(-c*i*(n_lm-1)) // n_lm-1 -> z, c
         dim3 block(num_threads); 
         dim3 grid((N1 * N2 - 1) / num_threads + 1);
         // dim3 grid((N1*N2*nf3-1)/num_threads+1);
-
         // PCS adt = plan->ta.gamma[0] * plan->ta.h[0] * plan->ta.o_center[0];
-        w_term_idft_2<<<grid,block>>>(plan->fw, nf1, nf2, nf3, N1, N2, plan->d_x, flag, xpixelsize, ypixelsize, i_center);
+        w_term_idft<<<grid,block>>>(plan->fw, nf1, nf2, nf3, N1, N2, plan->d_x, flag);
         checkCudaErrors(cudaDeviceSynchronize());
     }
     return;

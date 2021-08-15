@@ -152,7 +152,7 @@ int gridder_setting(int N1, int N2, int method, int kerevalmeth, int w_term_meth
     
     ier = setup_conv_opts(plan->copts, tol, sigma, 1, direction, kerevalmeth); //check the arguements pirange = 1
     
-    int fftsign = (iflag >= 0) ? 1 : -1;
+    int fftsign = (direction > 0) ? 1 : -1;
     plan->iflag = fftsign; 
 
     if (fftsign==1) plan->type = 1;
@@ -250,6 +250,7 @@ int gridder_setting(int N1, int N2, int method, int kerevalmeth, int w_term_meth
     rescaling_real_invoker(d_v,gridder_plan->pixelsize_y,gridder_plan->nrow);
     
     // fw malloc
+    // printf("nf1, nf2, nf3: (%d,%d,%d) %d\n",plan->nf1,plan->nf2,plan->nf3,plan->nf1*plan->nf2*plan->nf3);
 #ifdef INFO
     show_mem_usage();
     printf("nf1, nf2, nf3: (%d,%d,%d) %d\n",plan->nf1,plan->nf2,plan->nf3,plan->nf1*plan->nf2*plan->nf3);

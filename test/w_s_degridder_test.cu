@@ -52,9 +52,8 @@ int main(int argc, char *argv[])
 				"     1: Horner evaluation.\n");
 		return 1;
 	}
-	// issue related to accuary - how to set sigma, epsilon, number of plane, beta and kw. the number of w plane may need to increase.
 	int nxdirty, nydirty;
-	PCS sigma = 4; // upsampling factor
+	PCS sigma = 2; // upsampling factor
 	int nrow, nchan;
 	PCS fov;
 
@@ -75,7 +74,7 @@ int main(int argc, char *argv[])
 		sscanf(argv[7], "%d", &nchan);
 	}
 
-	PCS epsilon = 1e-6;
+	PCS epsilon = 1e-12;
 	if (argc > 8)
 	{
 		sscanf(argv[8], "%lf", &inp);
@@ -112,6 +111,9 @@ int main(int argc, char *argv[])
 	vis = (CPX *)malloc(nrow * sizeof(CPX));
 	PCS *d_u, *d_v, *d_w;
 	CUCPX *d_vis, *d_fk;
+
+    CPX *dirty_image = (CPX*) malloc (sizeof(CPX)*nxdirty*nydirty);
+
 	checkCudaErrors(cudaMalloc((void**)&d_u, nrow * sizeof(PCS)));
 	checkCudaErrors(cudaMalloc((void**)&d_v, nrow * sizeof(PCS)));
 	checkCudaErrors(cudaMalloc((void**)&d_w, nrow * sizeof(PCS)));
@@ -120,40 +122,45 @@ int main(int argc, char *argv[])
 	// generating data
 	for (int i = 0; i < nrow; i++)
 	{
-		u[i] = randm11() *  PI; //xxxxx remove
-		v[i] = randm11() *  PI;
-		w[i] = randm11() *  PI;
-		vis[i].real(randm11()*1000); // nrow vis per channel, weight?
-		vis[i].imag(randm11()*1000);
+		u[i] = randm11() * 0.5  * SPEEDOFLIGHT / f0; //xxxxx remove
+		v[i] = randm11() * 0.5  * SPEEDOFLIGHT / f0;
+		w[i] = randm11() * 0.5  * SPEEDOFLIGHT / f0;
+		vis[i].real(0); // nrow vis per channel, weight?
+		vis[i].imag(0);
 		// wgt[i] = 1;
 	}
+    for (int i=0; i < nxdirty*nydirty; i++){
+        dirty_image[i].real(randm11()*100);
+        dirty_image[i].imag(randm11()*100);
+    }
 #ifdef DEBUG
 	printf("origial input data...\n");
 	for(int i=0; i<nrow; i++){
-		printf("%.3lf ",u[i]);
+		printf("%.12lf ",w[i]);
 	}
 	printf("\n");
-	for(int i=0; i<nrow; i++){
-		printf("%.3lf ",vis[i].real());
+	for(int i=0; i<nxdirty*nydirty; i++){
+		printf("%.12lf ",dirty_image[i].real());
+		printf("%.12lf ",dirty_image[i].imag());
 	}
 	printf("\n");
 #endif
 	// ignore the tdirty
-	// how to convert ms to vis
 
-	//printf("generated data, x[1] %2.2g, y[1] %2.2g , z[1] %2.2g, c[1] %2.2g\n",x[1] , y[1], z[1], c[1].real());
-
-	// Timing begin
+	// Timing begin ++++
 	//data transfer
 	checkCudaErrors(cudaMemcpy(d_u, u, nrow * sizeof(PCS), cudaMemcpyHostToDevice)); //u
 	checkCudaErrors(cudaMemcpy(d_v, v, nrow * sizeof(PCS), cudaMemcpyHostToDevice)); //v
 	checkCudaErrors(cudaMemcpy(d_w, w, nrow * sizeof(PCS), cudaMemcpyHostToDevice)); //w
-
+	checkCudaErrors(cudaMemcpy(d_vis,  vis, nrow * sizeof(CUCPX), cudaMemcpyHostToDevice));
+	
 	/* -----------Step1: Baseline setting--------------
 	skip negative v
     uvw, nrow = M, shift, mask, f_over_c (fixed due to single channel)
     */
-	
+	int shift = 0;
+	while ((int(1) << shift) < nchan)
+		++shift;
 	// int mask = (int(1) << shift) - 1; // ???
 	PCS *f_over_c = (PCS*) malloc(sizeof(PCS)*nchan);
 	for(int i=0; i<nchan; i++){
@@ -179,49 +186,48 @@ int main(int argc, char *argv[])
 	pointer_v->vis = vis;
 	pointer_v->frequency = freq;
 	pointer_v->weight = wgt;
-	pointer_v->pirange = 1;
+	pointer_v->pirange = 0;
 
-	int direction = 1; //inverse
+	int direction = 0; //dirty to vis
 
 	// device data allocation and transfer should be done in gridder setting
 	ier = gridder_setting(nydirty,nxdirty,method,kerevalmeth,w_term_method,epsilon,direction,sigma,0,1,nrow,nchan,fov,pointer_v,d_u,d_v,d_w,d_vis
 		,plan,gridder_plan);
+
 	//print the setting result
 	free(pointer_v);
-
-
-
 	if(ier == 1){
 		printf("errors in gridder setting\n");
 		return ier;
 	}
-
-    checkCudaErrors(cudaMalloc((void**)&plan->fw,sizeof(CUCPX)*plan->nf1*plan->nf2*plan->nf3));
-    checkCudaErrors(cudaMemset(plan->fw, 0, plan->nf3 * plan->nf1 * plan->nf2 * sizeof(CUCPX)));
 	// fk(image) malloc and set
 	checkCudaErrors(cudaMalloc((void**)&d_fk,sizeof(CUCPX)*nydirty*nxdirty));
 	plan->fk = d_fk;
 
-	gridder_plan->dirty_image = (CPX *)malloc(sizeof(CPX)*nxdirty*nydirty*nchan); //
+	gridder_plan->dirty_image = dirty_image; //
+    checkCudaErrors(cudaMemcpy(d_fk, dirty_image, sizeof(CUCPX)*nxdirty*nydirty, cudaMemcpyHostToDevice));
+
 
 	// how to use weight flag and frequency
 	for(int i=0; i<nchan; i++){
 		// pre_setting
 		// 1. u, v, w * f_over_c
-		// 2. /pixelsize(*2pi)
+		// 2. *pixelsize(*2pi)
 		// 3. * rescale ratio
 		// pre_setting(d_u, d_v, d_w, d_vis, plan, gridder_plan);
 		// memory transfer (vis belong to this channel and weight)
-		checkCudaErrors(cudaMemcpy(d_vis, vis, nrow * sizeof(CUCPX), cudaMemcpyHostToDevice)); //
+		// checkCudaErrors(cudaMemcpy(d_vis, vis, nrow * sizeof(CUCPX), cudaMemcpyHostToDevice)); //
 		// shift to corresponding range
 		ier = gridder_execution(plan,gridder_plan);
 		if(ier == 1){
 			printf("errors in gridder execution\n");
 			return ier;
 		}
-		checkCudaErrors(cudaMemcpy(gridder_plan->dirty_image+i*nxdirty*nydirty, d_fk, sizeof(CUCPX)*nydirty*nxdirty,
+		checkCudaErrors(cudaMemcpy(gridder_plan->kv.vis, plan->d_c, sizeof(CUCPX)*nrow,
 			cudaMemcpyDeviceToHost));
 	}
+	printf("exection finished\n");
+#ifdef PRINT
 	printf("result printing...\n");
 	for(int i=0; i<nxdirty; i++){
 		for(int j=0; j<nydirty; j++){
@@ -229,23 +235,45 @@ int main(int argc, char *argv[])
 		}
 		printf("\n");
 	}
-
+#endif
 	PCS pi_ratio = 1;
 	if(!gridder_plan->kv.pirange)pi_ratio = 2 * PI;
-
-	printf("ground truth printing...\n");
-	for(int i=0; i<nxdirty; i++){
-		for(int j=0; j<nydirty; j++){
-			CPX temp(0.0,0.0);
-			PCS n_lm = sqrt(1.0-pow(gridder_plan->pixelsize_x*(i-nxdirty/2),2)-pow(gridder_plan->pixelsize_y*(j-nydirty/2),2));
-			for(int k=0; k<nrow; k++){
-				temp += vis[k]*exp((u[k]*pi_ratio*(i-nxdirty/2)+v[k]*pi_ratio*(j-nydirty/2)+w[k]*pi_ratio*(n_lm-1))*IMA);
-			}
-			printf("%lf ",temp.real()/(n_lm));
-		}
-		printf("\n");
+	int print_sizex = nxdirty;int print_sizey = nydirty;
+	if(nrow>=1e4){
+		print_sizex = 1;
+		print_sizey = 10;
 	}
+	PCS *truth = (PCS*) malloc (sizeof(PCS)*nrow);
+    for(int k=0; k<nrow; k++){
+        CPX temp(0.0,0.0);
+        for(int i=0; i<nxdirty; i++){
+		    for(int j=0; j<nydirty; j++){
+                PCS n_lm = sqrt(1.0-pow(gridder_plan->pixelsize_x*(i-nxdirty/2),2)-pow(gridder_plan->pixelsize_y*(j-nydirty/2),2));
+                PCS phase = -f0/SPEEDOFLIGHT*(u[k]*pi_ratio*gridder_plan->pixelsize_x*(i-nxdirty/2)+v[k]*pi_ratio*gridder_plan->pixelsize_y*(j-nydirty/2)+w[k]*pi_ratio*(n_lm-1));
+                temp += dirty_image[i*nydirty+j]/n_lm*exp(phase*IMA);
+            }
+        }
+        truth[k] = temp.real();
+    }
+
+	printf("portion of result and ground truth printing...\n");
+	for(int i=0; i<10; i++){
+		printf("(%lf,%lf)",gridder_plan->kv.vis[i].real(),truth[i]);
+	}
+	printf("\n");
+	double max=0;
+	double l2_max=0;
+	double sum_fk = 0;
 	
+	for(int i=0; i<print_sizex*print_sizey; i++){
+		double temp = abs(truth[i] - gridder_plan->kv.vis[i].real());
+		if(temp>max) max = temp;
+		l2_max += temp ;
+		sum_fk += abs(gridder_plan->kv.vis[i].real());
+	}
+	printf("maximal abs error %.3g, l2 error %.3g\n",max,l2_max/sum_fk);
+	printf("---------------------------------------------------------------------------------------------------\n");
+	plan->dim=3;
 	ier = gridder_destroy(plan, gridder_plan);
 	if(ier == 1){
 		printf("errors in gridder destroy\n");

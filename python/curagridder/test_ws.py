@@ -43,11 +43,8 @@ def test_against_wdft(nrow, nchan, nxdirty, nydirty, fov, epsilon):
     f0 = 1e9
     freq = f0 + np.arange(nchan)*(f0/nchan)
     uvw = (np.random.rand(nrow, 3)-0.5)/(f0/speedoflight)
-    print(uvw[:10])
     ms = np.random.rand(nrow, nchan)-0.5 + 1j*(np.random.rand(nrow, nchan)-0.5)
-    print(ms[:10])
     dirty = np.random.rand(nxdirty, nydirty)-0.5 + 0j
-    print(dirty[:1])
     dirty2 = np.zeros((nxdirty,nydirty),dtype=np.complex128)
     
     print("begin")
@@ -57,8 +54,6 @@ def test_against_wdft(nrow, nchan, nxdirty, nydirty, fov, epsilon):
     print("The elapsed time {} (sec)".format(end-start))
     print("Execution finished")
     dirty2 = np.reshape(dirty2,[nxdirty,nydirty])
-    print("dirty .......")
-    print(dirty2[:1])
     ms2 = np.zeros((nrow,1),dtype=np.complex128)
     ms2 = dirty2ms(uvw,freq, ms2, None, dirty, fov, epsilon,2)
 
@@ -66,7 +61,7 @@ def test_against_wdft(nrow, nchan, nxdirty, nydirty, fov, epsilon):
     print("\nadjointness testing....")
     print(np.vdot(ms, ms2).real)
     print(np.vdot(dirty2, dirty).real)
-    assert_allclose(np.vdot(ms, ms2).real, np.vdot(dirty2, dirty).real, rtol=5e-5)
+    assert_allclose(np.vdot(ms, ms2).real, np.vdot(dirty2, dirty).real, rtol=1e-12)
 
     if nrow<1e4:
         print("Vertification begin")
@@ -78,7 +73,8 @@ def test_against_wdft(nrow, nchan, nxdirty, nydirty, fov, epsilon):
 
 # the first test will execute 2 times to warp up the GPU
 # for i in range(10):
-#     test_against_wdft(1000, 1, 512, 512, 2, 1e-12)
+test_against_wdft(1000, 1, 512, 512, 2, 1e-12)
+test_against_wdft(1000, 1, 512, 512, 2, 1e-12)
 
 
 test_against_wdft(10000, 1, 512, 512, 60, 1e-12)

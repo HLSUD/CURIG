@@ -228,7 +228,7 @@ int main(int argc, char *argv[])
 	for(int i=0; i<N; i++){
 		adjt_2 += (conj(fk_2[i])*fk[i]).real();
 	}
-	printf("adjointness checking... %.10lf, %.10lf\n",adjt_1,adjt_2);
+	printf("adjointness checking...\n %.10lf, %.10lf\n",adjt_1,adjt_2);
 	//free memory
 	// Device
 	curafft_free(plan);

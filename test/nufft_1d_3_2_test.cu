@@ -28,9 +28,9 @@ int main(int argc, char *argv[])
 
 	// issue related to accuary - how to set sigma, epsilon, number of plane, beta and kw. the number of w plane may need to increase.
 	int ier = 0;
-	int N = 100;
+	int N = 1;
 	PCS sigma = 2; // upsampling factor
-	int M = 100;
+	int M = 25;
 
 	PCS epsilon = 1e-12;
 
@@ -175,7 +175,7 @@ int main(int argc, char *argv[])
 		printf("%.10lf ", c[i].real());
 	}
 	printf("\n");
-	CPX *truth = (CPX *)malloc(sizeof(CPX) * N);
+	CPX *truth = (CPX *)malloc(sizeof(CPX) * M);
 	printf("ground truth printing...\n");
 	for (int j = 0; j < M; j++)
 	{

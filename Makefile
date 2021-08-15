@@ -90,7 +90,7 @@ test/%.o: test/%.cu $(HEADERS)
 default: all
 
 
-all: libtest
+all: libtest explicit_gridder_test checkadjoint
 
 # testers for the lib (does not execute)
 libtest: lib convtest utiltest w_s_test nufft_test
@@ -102,11 +102,11 @@ explicit_gridder_test: $(BINDIR)/explicit_gridder_test
 
 utiltest: $(BINDIR)/utils_test
 
-w_s_test: $(BINDIR)/w_s_test \
-	$(BINDIR)/w_s_sim_test
+w_s_test: $(BINDIR)/w_s_gridder_test \
+	$(BINDIR)/w_s_degridder_test
 
 nufft_test: $(BINDIR)/nufft_1d_test \
-	$(BINDIR)/nufft_2d_test \
+	$(BINDIR)/nufft_2d_1_test \
 	$(BINDIR)/nufft_2d_2_test \
 	$(BINDIR)/nufft_1d_3_1_test \
 	$(BINDIR)/nufft_1d_3_2_test
@@ -149,13 +149,10 @@ checkutils: utiltest
 	bin/utils_test
 
 checkwst: w_s_test
-#	@echo "W simple checking..."
-#	bin/w_s_sim_test 0 1 10 10 30 10
+
 	@echo "W stacking checking..."
-# bin/w_s_test 0 1 10 10 100 0.5
-# bin/w_s_test 0 1 100 100 11000 10
-# bin/w_s_test 0 1 500 500 30000 10
-	bin/w_s_test 0 1 3000 3000 3000000 10
+	bin/w_s_gridder_test 0 1 100 100 10000 10
+	bin/w_s_degridder_test 0 1 100 100 10000 10
 # bin/w_s_test 0 1 5000 5000 50000000 10
 
 checkeg: explicit_gridder_test
@@ -163,11 +160,11 @@ checkeg: explicit_gridder_test
 	bin/explicit_gridder_test 20 20 20 10
 
 checkfft: nufft_test
-#	@echo "NUFFT testing..."
-# bin/nufft_1d_test 4096 4096 1e-13
-# bin/nufft_2d_test 10 10 100 1e-12
-# bin/nufft_2d_2_test 10 10 100 1e-12
-# bin/nufft_2d_2_test 100 100 10000 1e-12
+	@echo "NUFFT testing..."
+	bin/nufft_1d_test 4096 4096 1e-13
+	bin/nufft_2d_1_test 10 10 100 1e-12
+	bin/nufft_2d_2_test 10 10 100 1e-12
+	bin/nufft_2d_2_test 100 100 10000 1e-12
 	bin/nufft_1d_3_1_test
 	bin/nufft_1d_3_2_test
 
@@ -176,11 +173,6 @@ checkadjoint: adjointness_test
 	@echo "adjointness testing..."
 	bin/adjointness_1d_test
 
-
-# @echo "DFT theorem testing..."
-# bin/conv_theorem_dft_test
-# @echo "random k testing..."
-# bin/conv_theorem_dft_2_test
 
 python: libtest
 	cp lib/libcurafft.so python/curagridder/

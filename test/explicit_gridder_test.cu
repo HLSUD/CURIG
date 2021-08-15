@@ -109,7 +109,7 @@ int main(int argc, char *argv[])
 	printf("result printing...\n");
     for(int i=0; i<nxdirty; i++){
         for(int j=0; j<nydirty; j++){
-            printf("%.3lf ",plan->dirty_image[i*nydirty+j].real());
+            printf("%lf ",plan->dirty_image[i*nydirty+j].real());
         }
         printf("\n");
     }

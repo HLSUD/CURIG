@@ -53,43 +53,12 @@ int cura_rscaling(curafft_plan *plan, ragridder_plan *gridder_plan)
     return 0;
 }
 
-__global__ void mul_n_lm(CUCPX *fk, PCS xpixelsize, PCS ypixelsize, int N1, int N2)
-{
-    int idx;
-    PCS n_lm;
-    int row, col;
-    for (idx = blockDim.x * blockIdx.x + threadIdx.x; idx < N1 * N2; idx += gridDim.x * blockDim.x)
-    {
-        row = idx / N1;
-        col = idx % N1;
-        n_lm = sqrt(1.0 - pow((row - N2 / 2) * xpixelsize, 2) - pow((col - N1 / 2) * ypixelsize, 2));
-
-        fk[idx].x *= n_lm;
-        fk[idx].y *= n_lm;
-        
-    }
-}
-
-int cura_mrscaling(curafft_plan *plan, ragridder_plan *gridder_plan)
-{
-    //  * 1/n
-    int N1 = gridder_plan->width;
-    int N2 = gridder_plan->height;
-    int N = N1 * N2;
-    int blocksize = 256;
-    int gridsize = (N - 1) / blocksize + 1;
-
-    mul_n_lm<<<gridsize, blocksize>>>(plan->fk, gridder_plan->pixelsize_x, gridder_plan->pixelsize_y, N1, N2);
-    checkCudaErrors(cudaDeviceSynchronize());
-
-    return 0;
-}
 
 //
 __global__ void shift_corr(CUCPX *d_c, PCS *d_w, PCS i_center, PCS o_center, PCS gamma, int nrow, int flag){
         int idx;
         for(idx=threadIdx.x + blockDim.x*blockIdx.x; idx<nrow; idx+=gridDim.x*blockDim.x){
-                PCS phase = (d_w[idx]*gamma)*o_center*flag;
+                PCS phase = (d_w[idx]*gamma+i_center)*o_center*flag;
                 CUCPX temp;
                 temp.x = d_c[idx].x * cos(phase) - d_c[idx].y * sin(phase);
                 temp.y = d_c[idx].x * sin(phase) + d_c[idx].y * cos(phase);
@@ -107,19 +76,8 @@ int cura_fw(curafft_plan *plan, ragridder_plan *gridder_plan){
     // /wgt
     int ier = 0;
     int flag = plan->iflag;
-    int gamma = plan->ta.gamma[0];
+    PCS gamma = plan->ta.gamma[0];
     shift_corr_invoker(plan->d_c,plan->d_w,plan->ta.i_center[0],plan->ta.o_center[0],gamma,gridder_plan->nrow,flag);
-//     int nrow = gridder_plan->nrow;
-//     if(gridder_plan->kv.weight!=NULL){
-//         PCS *d_wgt;
-//         checkCudaErrors(cudaMalloc((void**)&d_wgt,sizeof(PCS)*nrow));
-//         checkCudaErrors(cudaMemcpy(d_wgt,gridder_plan->kv.weight,sizeof(PCS)*nrow,cudaMemcpyHostToDevice));
-//         matrix_elementwise_divide_invoker(plan->d_c,d_wgt,nrow);
-//         checkCudaErrors(cudaFree(d_wgt)); // to save memory
-//     }
-    
-//     // 
-//     pre_stage_1_invoker(plan->ta.o_center,plan->d_w,NULL,NULL,plan->d_c,nrow,plan->iflag);
     return ier;
 }
 
@@ -143,7 +101,6 @@ int cura_prestage(curafft_plan *plan, ragridder_plan *gridder_plan){
                 w_term_k_generation(plan->d_x, N1, N2, gridder_plan->pixelsize_x, gridder_plan->pixelsize_y);
                 pre_stage_1_invoker(plan->ta.o_center,plan->d_w,NULL,NULL,plan->d_c,nrow,plan->iflag);
                 pre_stage_2_invoker(plan->ta.i_center, plan->ta.o_center, plan->ta.gamma, plan->ta.h, plan->d_w, NULL, NULL, plan->d_x, NULL, NULL, plan->d_c, gridder_plan->nrow,(N1 / 2 + 1) * (N2 / 2 + 1), 1, 1);
-                // pre_stage_invoker(plan->ta.i_center, plan->ta.o_center, plan->ta.gamma, plan->ta.h, plan->d_w, NULL, NULL, plan->d_x, NULL, NULL, plan->d_c, gridder_plan->nrow,(N1 / 2 + 1) * (N2 / 2 + 1), 1, 1, plan->iflag);
                 
         }
         else{
@@ -369,6 +326,7 @@ int exec_dirty2vis(curafft_plan *plan, ragridder_plan *gridder_plan){
     // 2. deconvolution
     // 2.1 w term
     ier = curadft_w_deconv(plan, gridder_plan->pixelsize_x, gridder_plan->pixelsize_y); // fk * e-
+
 #ifdef DEBUG
     printf("deconv result printing stage 2:...\n");
         CPX *fk = (CPX *)malloc(sizeof(CPX)*plan->ms*plan->mt);
@@ -393,25 +351,31 @@ int exec_dirty2vis(curafft_plan *plan, ragridder_plan *gridder_plan){
         cudaMemcpy(fw, plan->fw, sizeof(CUCPX) * plan->nf1 * plan->nf2 * plan->nf3, cudaMemcpyDeviceToHost);
         for (int j = 0; j<1; j++){
                 printf("plane %d begin..............................................................\n",j);
-                for (int i = 0; i < 1; i++)
+                for (int i = 0; i <  plan->nf1 * plan->nf2; i++)
                 {
                         printf("%.6g ", fw[i+j*plan->nf1*plan->nf2].real());
+                        if(i%plan->nf1==0)printf("\n");
                         
                 }
                 printf("\n");
         }
+        free(fw);
 #endif
     // 3. idft
     curadft_invoker(plan, gridder_plan->pixelsize_x, gridder_plan->pixelsize_y);
+
+
 #ifdef DEBUG
      printf("idft result printing\n");
-        // CPX *fw = (CPX *)malloc(sizeof(CPX)*plan->nf1*plan->nf2*plan->nf3);
+        CPX *fw = (CPX *)malloc(sizeof(CPX)*plan->nf1*plan->nf2*plan->nf3);
         cudaMemcpy(fw, plan->fw, sizeof(CUCPX) * plan->nf1 * plan->nf2 * plan->nf3, cudaMemcpyDeviceToHost);
-        for (int j = 0; j<plan->nf3/2+1; j++){
+        for (int j = 0; j<plan->nf3; j++){
                 printf("plane %d begin..............................................................\n",j);
-                for (int i = 0; i < 1; i++)
+                for (int i = plan->nf1 * plan->nf2-plan->nf2-2; i <  plan->nf1 * plan->nf2-plan->nf2-1; i++)
                 {
-                        printf("%.6g ", fw[i+j*plan->nf1*plan->nf2].real());
+                        if(i%plan->nf1==0)printf("\n");
+                        printf("%.10g ", fw[i+j*plan->nf1*plan->nf2].real());
+                        
                         
                 }
                 printf("\n");
@@ -459,6 +423,7 @@ int exec_dirty2vis(curafft_plan *plan, ragridder_plan *gridder_plan){
         free(c);
 #endif
     // 6. final work (/wgt, *e)
-    cura_fw(plan,gridder_plan); // *ez0w0
+    cura_fw(plan,gridder_plan); // 
     return ier;
 }
+
